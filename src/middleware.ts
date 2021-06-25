@@ -189,11 +189,11 @@ type PersistOptions<S> = {
   /**
    * Prevent some items from being stored.
    */
-  blacklist?: (keyof S)[]
+  blacklist?: string[]
   /**
    * Only store the listed properties.
    */
-  whitelist?: (keyof S)[]
+  whitelist?: string[]
   /**
    * A function returning another (optional) function.
    * The main function will be called before the state rehydration.
@@ -290,15 +290,58 @@ export const persist =
     const thenableSerialize = toThenable(serialize)
 
     const setItem = (): Thenable<void> => {
-      const state = { ...get() }
+      let state: Partial<S> = get()
 
       if (whitelist) {
-        ;(Object.keys(state) as (keyof S)[]).forEach((key) => {
-          !whitelist.includes(key) && delete state[key]
-        })
+        const filterStateFromWhitelist = (
+          obj: Record<string, any>,
+          keys: string[]
+        ) =>
+          keys.reduce<Object>(
+            (acc: Record<string, any>, key) => {
+              const keySplits = key.split('.')
+
+              if (keySplits.length > 1) {
+                const parentKey = keySplits[0]
+                const childrenKey = keySplits.slice(1).join('.')
+
+                if (Array.isArray(obj[parentKey])) {
+                  acc[parentKey] = [
+                    ...(acc[parentKey] || []),
+                    ...filterStateFromWhitelist(obj[parentKey], [
+                      childrenKey,
+                    ]).filter((e) => e),
+                  ]
+                } else {
+                  acc[parentKey] = {
+                    ...acc[parentKey],
+                    ...filterStateFromWhitelist(obj[parentKey], [childrenKey]),
+                  }
+                }
+              } else if (key in obj) {
+                acc[key] = obj[key]
+              }
+
+              return acc
+            },
+            Array.isArray(obj) ? [] : {}
+          )
+
+        state = filterStateFromWhitelist(state, whitelist) as Partial<S>
       }
       if (blacklist) {
-        blacklist.forEach((key) => delete state[key])
+        blacklist.forEach((key) => {
+          let obj: Object | Array<unknown> = state
+          const keys = key.split('.')
+
+          keys.forEach((k, i) => {
+            if (i === keys.length - 1) {
+              delete obj[k as keyof Object]
+            } else {
+              obj = obj[k as keyof Object]
+            }
+          })
+        })
       }
 
       let errorInSync: Error | undefined
