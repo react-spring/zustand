@@ -239,4 +239,66 @@ describe('persist middleware with sync configuration', () => {
     expect(useStore.getState()).toEqual(expectedState)
     expect(onRehydrateStorageSpy).toBeCalledWith(expectedState, undefined)
   })
+
+  it('can backlist / whitelist nested fields', () => {
+    const setItemSpy = jest.fn()
+
+    const storage = {
+      getItem: () => '',
+      setItem: setItemSpy,
+    }
+
+    const useStore = create(
+      persist(
+        () => ({
+          object: {
+            first: '0',
+            second: '1',
+            third: '2',
+          },
+          array: [
+            {
+              value: '0',
+            },
+            {
+              value: '1',
+            },
+            {
+              value: '2',
+            },
+          ],
+        }),
+        {
+          name: 'test-storage',
+          getStorage: () => storage,
+          blacklist: ['object.first', 'array.0.value'],
+          whitelist: [
+            'object.first',
+            'object.third',
+            'array.0.value',
+            'array.2',
+          ],
+        }
+      )
+    )
+
+    useStore.setState({})
+    expect(setItemSpy).toBeCalledWith(
+      'test-storage',
+      JSON.stringify({
+        state: {
+          object: {
+            third: '2',
+          },
+          array: [
+            {},
+            {
+              value: '2',
+            },
+          ],
+        },
+        version: 0,
+      })
+    )
+  })
 })
