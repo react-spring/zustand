@@ -1,4 +1,11 @@
-import { useEffect, useLayoutEffect, useReducer, useRef } from 'react'
+import {
+  useMemo,
+  // @ts-ignore
+  unstable_createMutableSource as createMutableSource,
+  // @ts-ignore
+  unstable_useMutableSource as useMutableSource,
+} from 'react'
+
 import createImpl, {
   Destroy,
   EqualityChecker,
@@ -11,15 +18,6 @@ import createImpl, {
   StoreApi,
 } from './vanilla'
 export * from './vanilla'
-
-// For server-side rendering: https://github.com/pmndrs/zustand/pull/34
-// Deno support: https://github.com/pmndrs/zustand/issues/347
-const isSSR =
-  typeof window === 'undefined' ||
-  !window.navigator ||
-  /ServerSideRendering|^Deno\//.test(window.navigator.userAgent)
-
-const useIsomorphicLayoutEffect = isSSR ? useEffect : useLayoutEffect
 
 export interface UseStore<T extends State> {
   (): T
@@ -36,102 +34,53 @@ export default function create<TState extends State>(
   const api: StoreApi<TState> =
     typeof createState === 'function' ? createImpl(createState) : createState
 
+  const source = createMutableSource(api, () => api.getState())
+
+  const FUNCTION_SYMBOL = Symbol()
+  const functionMap = new WeakMap<Function, { [FUNCTION_SYMBOL]: Function }>()
+
   const useStore: any = <StateSlice>(
     selector: StateSelector<TState, StateSlice> = api.getState as any,
     equalityFn: EqualityChecker<StateSlice> = Object.is
   ) => {
-    const [, forceUpdate] = useReducer((c) => c + 1, 0) as [never, () => void]
-
-    const state = api.getState()
-    const stateRef = useRef(state)
-    const selectorRef = useRef(selector)
-    const equalityFnRef = useRef(equalityFn)
-    const erroredRef = useRef(false)
-
-    const currentSliceRef = useRef<StateSlice>()
-    if (currentSliceRef.current === undefined) {
-      currentSliceRef.current = selector(state)
-    }
-
-    let newStateSlice: StateSlice | undefined
-    let hasNewStateSlice = false
-
-    // The selector or equalityFn need to be called during the render phase if
-    // they change. We also want legitimate errors to be visible so we re-run
-    // them if they errored in the subscriber.
-    if (
-      stateRef.current !== state ||
-      selectorRef.current !== selector ||
-      equalityFnRef.current !== equalityFn ||
-      erroredRef.current
-    ) {
-      // Using local variables to avoid mutations in the render phase.
-      newStateSlice = selector(state)
-      hasNewStateSlice = !equalityFn(
-        currentSliceRef.current as StateSlice,
-        newStateSlice
-      )
-    }
-
-    // Syncing changes in useEffect.
-    useIsomorphicLayoutEffect(() => {
-      if (hasNewStateSlice) {
-        currentSliceRef.current = newStateSlice as StateSlice
-      }
-      stateRef.current = state
-      selectorRef.current = selector
-      equalityFnRef.current = equalityFn
-      erroredRef.current = false
-    })
-
-    const stateBeforeSubscriptionRef = useRef(state)
-    useIsomorphicLayoutEffect(() => {
-      const listener = () => {
+    const getSnapshot = useMemo(() => {
+      let lastSlice: StateSlice | undefined
+      return () => {
+        let slice = lastSlice
         try {
-          const nextState = api.getState()
-          const nextStateSlice = selectorRef.current(nextState)
-          if (
-            !equalityFnRef.current(
-              currentSliceRef.current as StateSlice,
-              nextStateSlice
-            )
-          ) {
-            stateRef.current = nextState
-            currentSliceRef.current = nextStateSlice
-            forceUpdate()
+          slice = selector(api.getState())
+          if (lastSlice !== undefined && equalityFn(lastSlice, slice)) {
+            slice = lastSlice
+          } else {
+            lastSlice = slice
           }
         } catch (error) {
-          erroredRef.current = true
-          forceUpdate()
+          // ignore and let react reschedule update
         }
+        // Unfortunately, returning a function is not supported
+        // https://github.com/facebook/react/issues/18823
+        if (typeof slice === 'function') {
+          if (functionMap.has(slice)) {
+            return functionMap.get(slice)
+          }
+          const wrappedFunction = { [FUNCTION_SYMBOL]: slice }
+          functionMap.set(slice, wrappedFunction)
+          return wrappedFunction
+        }
+        return slice
       }
-      const unsubscribe = api.subscribe(listener)
-      if (api.getState() !== stateBeforeSubscriptionRef.current) {
-        listener() // state has changed before subscription
-      }
-      return unsubscribe
-    }, [])
-
-    return hasNewStateSlice
-      ? (newStateSlice as StateSlice)
-      : currentSliceRef.current
+    }, [selector, equalityFn])
+    const snapshot = useMutableSource(source, getSnapshot, api.subscribe)
+    if (
+      snapshot &&
+      (snapshot as { [FUNCTION_SYMBOL]: unknown })[FUNCTION_SYMBOL]
+    ) {
+      return snapshot[FUNCTION_SYMBOL]
+    }
+    return snapshot
   }
 
   Object.assign(useStore, api)
-
-  // For backward compatibility (No TS types for this)
-  useStore[Symbol.iterator] = function () {
-    console.warn(
-      '[useStore, api] = create() is deprecated and will be removed in v4'
-    )
-    const items = [useStore, api]
-    return {
-      next() {
-        const done = items.length <= 0
-        return { value: items.shift(), done }
-      },
-    }
-  }
 
   return useStore
 }

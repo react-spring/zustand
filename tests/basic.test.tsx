@@ -145,6 +145,7 @@ it('re-renders with useLayoutEffect', async () => {
 
   const container = document.createElement('div')
   ReactDOM.render(<Component />, container)
+  await new Promise((resolve) => setTimeout(resolve, 10))
   expect(container.innerHTML).toBe('true')
   ReactDOM.unmountComponentAtNode(container)
 })
@@ -214,14 +215,14 @@ it('can update the equality checker', async () => {
 
   // This will cause a re-render due to the equality checker.
   act(() => setState({ value: 0 }))
-  await findByText('renderCount: 2, value: 0')
+  await findByText('renderCount: 1, value: 0')
 
   // Set an equality checker that always returns true to never re-render.
   rerender(<Component equalityFn={() => true} />)
 
   // This will NOT cause a re-render due to the equality checker.
   act(() => setState({ value: 1 }))
-  await findByText('renderCount: 3, value: 0')
+  await findByText('renderCount: 2, value: 0')
 })
 
 it('can call useStore with progressively more arguments', async () => {
@@ -308,7 +309,8 @@ it('can throw an error in selector', async () => {
   act(() => {
     setState({})
   })
-  await findByText('errored')
+  // in v4 with uMS, we don't use equalityFn in render
+  // await findByText('errored')
 })
 
 it('can throw an error in equality checker', async () => {
@@ -352,7 +354,8 @@ it('can throw an error in equality checker', async () => {
   act(() => {
     setState({})
   })
-  await findByText('errored')
+  // in v4 with uMS, we don't use equalityFn in render
+  // await findByText('errored')
 })
 
 it('can get the store', () => {
@@ -423,6 +426,7 @@ it('only calls selectors when necessary', async () => {
   const useStore = create<State>(() => ({ a: 0, b: 0 }))
   const { setState } = useStore
   let inlineSelectorCallCount = 0
+  let callbackSelectorCallCount = 0
   let staticSelectorCallCount = 0
 
   function staticSelector(s: State) {
@@ -432,10 +436,12 @@ it('only calls selectors when necessary', async () => {
 
   function Component() {
     useStore((s) => (inlineSelectorCallCount++, s.b))
+    useStore(React.useCallback((s) => (callbackSelectorCallCount++, s.b), []))
     useStore(staticSelector)
     return (
       <>
         <div>inline: {inlineSelectorCallCount}</div>
+        <div>callback: {callbackSelectorCallCount}</div>
         <div>static: {staticSelectorCallCount}</div>
       </>
     )
@@ -443,15 +449,18 @@ it('only calls selectors when necessary', async () => {
 
   const { rerender, findByText } = render(<Component />)
   await findByText('inline: 1')
+  await findByText('callback: 1')
   await findByText('static: 1')
 
   rerender(<Component />)
-  await findByText('inline: 2')
-  await findByText('static: 1')
+  await findByText('inline: 3')
+  await findByText('callback: 2')
+  await findByText('static: 2')
 
   act(() => setState({ a: 1, b: 1 }))
-  await findByText('inline: 4')
-  await findByText('static: 2')
+  await findByText('inline: 5')
+  await findByText('callback: 3')
+  await findByText('static: 3')
 })
 
 it('ensures parent components subscribe before children', async () => {

@@ -1,7 +1,10 @@
 {
   "name": "zustand",
   "private": true,
-  "version": "3.5.7",
+  "version": "4.0.0-alpha.0",
+  "publishConfig": {
+    "tag": "alpha"
+  },
   "description": "🐻 Bear necessities for state management in React",
   "main": "index.js",
   "module": "esm/index.js",
@@ -152,8 +155,8 @@
     "json": "^11.0.0",
     "lint-staged": "^11.0.0",
     "prettier": "^2.3.2",
-    "react": "^17.0.2",
-    "react-dom": "^17.0.2",
+    "react": "alpha",
+    "react-dom": "alpha",
     "rollup": "^2.53.0",
     "rollup-plugin-esbuild": "^4.5.0",
     "rollup-plugin-size-snapshot": "^0.12.0",
@@ -161,7 +164,7 @@
     "typescript": "^4.3.5"
   },
   "peerDependencies": {
-    "react": ">=16.8"
+    "react": "alpha"
   },
   "peerDependenciesMeta": {
     "react": {
